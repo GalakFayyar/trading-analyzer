@@ -3,20 +3,20 @@
     Intègres les données à destination de l'application GeoPro dans Elasticsearch
 
     Usage:
-        init_data.py --type_doc=<doc_type> --source_folder=<folder_path> [--debug] 
+        init_data.py [--type_doc=<doc_type>] [--source_folder=<folder_path>] [--debug] 
 
     Example:
         python init_data.py --type_doc=crypto --source_folder=./data/
 
     Options:
         --help                              Affiche l'aide
-        --type_doc=<doc_type>               ype de document à traiter
-        --source_filefolder=<folder_path>     Fichier contenant les données à importer ou à mettre à jour
+        --type_doc=<doc_type>               Type de document à traiter
+        --source_filefolder=<file_path>     Fichier contenant les données à importer ou à mettre à jour
 """
 from elasticsearch import Elasticsearch, TransportError
 from logger import logger, configure
 from docopt import docopt
-import json, time
+import json, time, glob
 
 from swallow.inout.ESio import ESio
 from swallow.inout.CSVio import CSVio
@@ -48,11 +48,8 @@ def file_to_elasticsearch(p_docin, p_type, p_es_conn, p_es_index, p_arguments):
 
     return [document]
 
-def run_import(type_doc = None, source_file = None):
-    conf = json.load(open('./init-conf.json'))
-
-    # Command line args
-    arguments = docopt(__doc__, version=conf['version'])
+def run_import(conf, type_doc = None, source_file = None):
+    logger.debug("Running import...")
 
     configure(conf['log']['level_values'][conf['log']['level']],
               conf['log']['dir'], 
@@ -115,13 +112,9 @@ def run_import(type_doc = None, source_file = None):
     # Objet swallow pour la transformation de données
     swal = Swallow()
 
-    # Tentative de récupération des paramètres en argument
-    type_doc = arguments['--type_doc'] if not type_doc else type_doc
-    source_file = arguments['--source_file'] if not source_file else ('./upload/' + source_file)
-
     # On lit dans un fichier
     reader = CSVio()
-    swal.set_reader(reader, p_file=source_file, p_delimiter='|')
+    swal.set_reader(reader, p_file=source_file, p_delimiter=';')
 
     # On écrit dans ElasticSearch
     writer = ESio(conf['connectors']['elasticsearch']['host'],
@@ -136,7 +129,27 @@ def run_import(type_doc = None, source_file = None):
     
     swal.run(1)
 
-    logger.debug("Opération terminée pour le type de document %s ", type_doc)
+    logger.debug("Opération terminée pour le type de document %s ", type_doc)    
 
 if __name__ == '__main__':
-    run_import()
+    conf = json.load(open('./conf.json'))
+
+    # Command line args
+    arguments = docopt(__doc__, version=conf['version'])
+
+    # Tentative de récupération des paramètres en argument
+    type_doc = arguments['--type_doc'] if '--type_doc' in arguments and arguments['--type_doc'] else "crypto"
+    source_folder = arguments['--source_folder'] if '--source_folder' in arguments and arguments['--source_folder'] else './data/'
+
+    files_ext = '*.txt'
+    
+    files = glob.glob(source_folder + files_ext)
+    print(source_folder + files_ext)
+    for name in files:
+        try:
+            with open(name) as f:
+                run_import(conf, type_doc, f)
+        except IOError as exc:
+            if exc.errno != errno.EISDIR:
+                logger.error("Error")
+                raise
